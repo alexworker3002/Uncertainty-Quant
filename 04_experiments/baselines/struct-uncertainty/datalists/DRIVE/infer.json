@@ -1,0 +1,17 @@
+{
+    "common":{
+        "activity": "test",
+        "num_classes":2,
+        "img_folder": "",
+        "gt_folder": "",
+        "segmodel_checkpoint_restore":"",
+        "uncmodel_checkpoint_restore":"",
+        "dataname":"DRIVE",
+        "network":"unet",
+        "gpu":"true"
+    },
+    "test":{
+        "output_folder":"",
+        "MCSamples":10
+    }
+}

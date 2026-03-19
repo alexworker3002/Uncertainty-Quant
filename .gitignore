@@ -1,0 +1,58 @@
+# Notes and docs (excluded from repo)
+profile.md
+README.md
+temp.md
+TODO.md
+PROJECT_STRUCTURE.md
+
+# Theory/math and data (excluded)
+01_theory_and_math/
+06_data/
+
+# Data (large files)
+05_data/tubetk/*
+05_data/drive/*
+05_data/kits19/*
+!05_data/**/.gitkeep
+
+# Model checkpoints
+*.pth
+*.pt
+*.ckpt
+checkpoints/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+*.so
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Nested git (struct-uncertainty baseline)
+04_experiments/baselines/struct-uncertainty/.git/
+
+# OS
+.DS_Store
+
+# LaTeX auxiliary
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
+# Jupyter
+.ipynb_checkpoints/
