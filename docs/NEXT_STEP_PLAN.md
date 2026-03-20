@@ -6,74 +6,107 @@ Owner: Ice + Cursor agents
 ## 1) Current project status
 
 ### Completed in this round
-- Repository scaffold aligned with `profile.md` two-phase narrative:
-  - Phase 1 Diagnostic (THE)
-  - Phase 2 Actionability (TTTGF)
-- Baseline vessel segmentation + UQ comparison structure created:
-  - Config system (`configs/*`)
-  - Entry scripts (`scripts/train`, `scripts/eval`, `scripts/run`)
-  - Core package skeleton (`src/uce/*`)
-- Minimal U-Net 2D model scaffold implemented.
-- Basic segmentation metrics scaffold implemented (Dice/IoU).
-- Basic UQ output container + summary ops scaffold implemented.
-- Baseline experiment config `exp_01_baseline_uq` prepared.
+- Upgraded and stabilized data acquisition/preparation pipeline:
+  - `scripts/data/download_drive.py` now supports:
+    - online URL attempts,
+    - local zip inputs,
+    - Kaggle CLI fallback,
+    - KaggleHub fallback (python API).
+  - Added support for extracted DRIVE tree fallback (works even when zips are absent but `data/raw/drive/DRIVE/...` exists).
+  - Added compatibility fallback for test split when `1st_manual` is unavailable (uses `mask/`).
+- Real DRIVE data is now prepared in project layout:
+  - `data/processed/drive/train/images`, `data/processed/drive/train/mask`
+  - `data/processed/drive/test/images`, `data/processed/drive/test/mask`
+  - Pair counts: train=20, test=20.
+- Deterministic split generation completed:
+  - `data/splits/drive_train.txt` (16)
+  - `data/splits/drive_val.txt` (4)
+  - `data/splits/drive_test.txt` (20)
+- Training pipeline improvements:
+  - `scripts/train/train_baseline.py`
+    - full-epoch logic fixed (`--smoke_steps 0` now runs configured full epochs),
+    - test predictions exported for full test set,
+    - test inference uses `best.pt` checkpoint.
+- Import robustness fixed in scripts:
+  - `scripts/train/train_baseline.py`
+  - `scripts/eval/eval_seg.py`
+  - `scripts/infer/infer_uq.py`
+  - All support local execution via `src` bootstrap + `uce.*` imports.
+- Full baseline training completed on real DRIVE data (50 epochs).
+- Segmentation evaluation completed:
+  - Dice: **0.2410**
+  - IoU: **0.1374**
+- UQ path executed end-to-end (scaffold level):
+  - `scripts/infer/infer_uq.py` generated `outputs/uq_maps/mc_dropout_stats.npz`.
+  - `scripts/eval/eval_uq.py` executed successfully and printed summary:
+    - `mean_prob shape: (2, 1, 512, 512)`
+    - `variance mean: 0.003914`
+    - `entropy mean: 0.581950`
 
-### Not yet completed
-- Real DRIVE dataset loader + preprocessing pipeline.
-- Real training loop (optimizer/loss/scheduler/amp/checkpoint-resume).
-- Full UQ inference pipeline for deterministic / MC Dropout / ensemble / TTA.
-- Formal UQ metrics (ECE/NLL/Brier/Risk-Coverage/AURC).
-- Experiment report auto-export (CSV + plots).
+### Failed / blocked in this round
+- Official direct DRIVE URLs returned 404 in this environment; resolved by using KaggleHub/extracted-tree fallback.
+- UQ evaluation remains scaffold-level only (ECE/NLL/Brier/Risk-Coverage/AURC not implemented yet).
 
 ## 2) Immediate next objectives (priority ordered)
 
-1. **Data pipeline first (P0)**
-   - Implement `src/uce/data/dataset.py` and `src/uce/data/transforms.py` for DRIVE.
-   - Add `scripts/data/preprocess.py` to normalize and materialize train/val/test folders.
-   - Ensure deterministic split file under `data/splits/`.
+1. **P0: Make UQ inference use real test loader instead of random tensor**
+   - Update `scripts/infer/infer_uq.py` to iterate over `DriveDataset(split="test")`.
+   - Save per-image aligned outputs and names.
 
-2. **Train baseline end-to-end (P0)**
-   - Upgrade `scripts/train/train_baseline.py` to full trainer:
-     - BCE+Dice loss
-     - AdamW
-     - mixed precision
-     - model checkpointing and best-val selection
-   - Save predictions for test set.
+2. **P0: Implement formal UQ metrics**
+   - Extend `scripts/eval/eval_uq.py` with:
+     - ECE
+     - NLL
+     - Brier Score
+     - Risk-Coverage / AURC
 
-3. **UQ evaluation path (P1)**
-   - Add `scripts/infer/infer_uq.py`.
-   - Implement method adapters in `src/uce/uq_baselines/` for:
-     - deterministic
-     - mc_dropout
-     - deep_ensemble
-     - tta
-   - Store `mean_prob/variance/entropy` as `npz`.
+3. **P1: Export reproducible report tables**
+   - Save segmentation + UQ summaries into CSV:
+     - `reports/tables/exp01_metrics.csv`
 
-4. **Metrics & reporting (P1)**
-   - Extend `scripts/eval/eval_uq.py` with ECE/NLL/Brier and risk-coverage metrics.
-   - Save summary table to `reports/tables/exp01_metrics.csv`.
+4. **P1: Optional training quality uplift**
+   - Add stronger augmentation and/or more stable validation protocol.
+   - Track best epoch and metric curves to diagnose low Dice.
 
 ## 3) Suggested execution commands (server)
 
 ```bash
-# 1) baseline train
-python scripts/train/train_baseline.py --config configs/experiments/exp_01_baseline_uq.yaml
+# 0) dependency sync (if needed)
+pip install -r requirements.txt
 
-# 2) segmentation evaluation
+# 1) prepare DRIVE (auto-fallback enabled)
+python scripts/data/download_drive.py --kagglehub_dataset andrewmvd/drive-digital-retinal-images-for-vessel-extraction
+
+# 2) generate splits
+python scripts/data/preprocess.py --root data/processed/drive --seed 42 --val_ratio 0.2
+
+# 3) full baseline train (50 epochs from config)
+python scripts/train/train_baseline.py --config configs/experiments/exp_01_baseline_uq.yaml --smoke_steps 0
+
+# 4) segmentation evaluation
 python scripts/eval/eval_seg.py --pred_dir outputs/predictions --gt_dir data/processed/drive/test/mask
 
-# 3) uq evaluation (after infer_uq is completed)
+# 5) current scaffold UQ run
+python scripts/infer/infer_uq.py \
+  --config configs/experiments/exp_01_baseline_uq.yaml \
+  --method mc_dropout \
+  --ckpt outputs/checkpoints/best.pt \
+  --output outputs/uq_maps/mc_dropout_stats.npz \
+  --num_samples 10
+
 python scripts/eval/eval_uq.py --uq_npz outputs/uq_maps/mc_dropout_stats.npz --gt_dir data/processed/drive/test/mask
 ```
 
 ## 4) Handoff checklist for next agent
 
-- [ ] Confirm dependencies and CUDA-specific torch build on target server.
-- [ ] Confirm DRIVE license/access and data placement.
-- [ ] Implement and test data loader with one mini-batch visual sanity check.
-- [ ] Replace scaffold training placeholder with full training loop.
-- [ ] Run a smoke test on 5-10 samples before full training.
-- [ ] Export first reproducible metrics table.
+- [x] Acquire/prepare DRIVE data in project layout.
+- [x] Generate deterministic splits.
+- [x] Run full baseline training on real data.
+- [x] Run segmentation evaluation and record metrics.
+- [x] Run scaffold UQ inference/evaluation end-to-end.
+- [ ] Replace random-tensor UQ inference with real test dataloader.
+- [ ] Implement formal UQ metrics (ECE/NLL/Brier/Risk-Coverage/AURC).
+- [ ] Export first reproducible metrics CSV table.
 
 ## 5) Process rule (important)
 

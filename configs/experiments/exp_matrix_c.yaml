@@ -1,0 +1,7 @@
+experiment_name: exp_matrix_c
+dataset_config: configs/datasets/drive.yaml
+model_config: configs/models/unet2d_matrix_c.yaml
+training_config: configs/training/matrix_c.yaml
+uq_methods:
+  - configs/uq/mc_dropout.yaml
+output_root: outputs/matrix_c

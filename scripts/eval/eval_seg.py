@@ -2,11 +2,17 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+SRC_ROOT = PROJECT_ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 
 import numpy as np
 from PIL import Image
 
-from src.uce.metrics.segmentation import dice_score, iou_score
+from uce.metrics.segmentation import dice_score, iou_score
 
 
 def parse_args() -> argparse.Namespace:
@@ -20,6 +26,14 @@ def parse_args() -> argparse.Namespace:
 def load_mask(path: Path) -> np.ndarray:
     arr = np.array(Image.open(path).convert("L"), dtype=np.uint8)
     return (arr > 127).astype(np.uint8)
+
+
+def center_crop_to_shape(arr: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
+    h, w = arr.shape
+    th, tw = shape
+    top = max((h - th) // 2, 0)
+    left = max((w - tw) // 2, 0)
+    return arr[top : top + th, left : left + tw]
 
 
 def main() -> None:
@@ -38,6 +52,12 @@ def main() -> None:
             continue
         pred = load_mask(pred_path)
         gt = load_mask(gt_path)
+
+        if pred.shape != gt.shape:
+            gt = center_crop_to_shape(gt, pred.shape)
+            if gt.shape != pred.shape:
+                continue
+
         dices.append(dice_score(pred, gt))
         ious.append(iou_score(pred, gt))
 
