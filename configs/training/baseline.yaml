@@ -1,0 +1,15 @@
+seed: 42
+epochs: 50
+batch_size: 8
+num_workers: 4
+optimizer:
+  name: adamw
+  lr: 0.0003
+  weight_decay: 0.00001
+scheduler:
+  name: cosine
+  min_lr: 0.000001
+loss:
+  bce_weight: 0.5
+  dice_weight: 0.5
+amp: true

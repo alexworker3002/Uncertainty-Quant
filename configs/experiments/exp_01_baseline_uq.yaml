@@ -1,0 +1,10 @@
+experiment_name: exp_01_baseline_uq
+dataset_config: configs/datasets/drive.yaml
+model_config: configs/models/unet2d.yaml
+training_config: configs/training/baseline.yaml
+uq_methods:
+  - configs/uq/deterministic.yaml
+  - configs/uq/mc_dropout.yaml
+  - configs/uq/deep_ensemble.yaml
+  - configs/uq/tta.yaml
+output_root: outputs

@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "uce"
+version = "0.1.0"
+description = "Uncertainty and topology framework scaffold for vessel segmentation"
+requires-python = ">=3.10"
+dependencies = [
+  "torch>=2.0",
+  "torchvision",
+  "numpy",
+  "scipy",
+  "scikit-image",
+  "Pillow",
+  "pyyaml",
+  "tqdm",
+  "matplotlib",
+  "gudhi",
+  "pot",
+  "nibabel",
+  "SimpleITK",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

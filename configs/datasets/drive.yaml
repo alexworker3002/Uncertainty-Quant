@@ -1,0 +1,7 @@
+name: DRIVE
+root: data/processed/drive
+image_subdir: images
+mask_subdir: mask
+in_channels: 3
+num_classes: 1
+input_size: [512, 512]

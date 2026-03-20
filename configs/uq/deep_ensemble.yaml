@@ -1,0 +1,3 @@
+method: deep_ensemble
+num_members: 3
+member_seeds: [42, 43, 44]

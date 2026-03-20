@@ -1,0 +1,5 @@
+name: topological_hallucination_energy
+use_dmt_acceleration: true
+sinkhorn:
+  epsilon: 0.05
+  max_iter: 100

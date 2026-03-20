@@ -1,0 +1,3 @@
+method: tta
+num_samples: 8
+transforms: [hflip, vflip, rot90]

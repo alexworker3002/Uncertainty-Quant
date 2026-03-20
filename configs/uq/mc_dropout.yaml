@@ -1,0 +1,3 @@
+method: mc_dropout
+num_samples: 20
+enable_dropout_at_inference: true
