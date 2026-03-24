@@ -142,6 +142,7 @@ def compute_the_for_likelihood(
     sigma: float = 0.1,
     num_iter_max: int = 300,
     max_hw: int = 192,
+    backend: str = "gudhi",
 ) -> THEResult:
     """Compute scalar THE from a single-pass probability map in [0,1]."""
     if likelihood.ndim == 3 and likelihood.shape[0] == 1:
@@ -154,7 +155,12 @@ def compute_the_for_likelihood(
     prob = _downsample_for_the(prob, max_hw=max_hw)
 
     mod = _load_the_module()
-    pd = mod.extract_persistence(prob, min_persistence=min_persistence, homology_dims=homology_dims)
+    pd = mod.extract_persistence(
+        prob,
+        min_persistence=min_persistence,
+        homology_dims=homology_dims,
+        backend=backend,
+    )
     the_val = mod.compute_the(pd, epsilon=epsilon, reg_m=reg_m, sigma=sigma, num_iter_max=num_iter_max)
 
     dims = pd.dimensions if pd.dimensions.size > 0 else np.array([], dtype=np.int64)
@@ -180,6 +186,7 @@ def compute_the_from_prediction_npz(
     max_samples: int = 0,
     max_hw: int = 192,
     log_every: int = 1,
+    backend: str = "gudhi",
 ) -> list[dict]:
     """Run THE over single-pass prediction probabilities in an npz file."""
     data = np.load(pred_npz, allow_pickle=True)
@@ -219,6 +226,7 @@ def compute_the_from_prediction_npz(
             sigma=sigma,
             num_iter_max=num_iter_max,
             max_hw=max_hw,
+            backend=backend,
         )
         out.append(
             {

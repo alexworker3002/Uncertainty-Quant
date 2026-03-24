@@ -1,9 +1,8 @@
 """
-Persistence homology feature extraction via GUDHI CubicalComplex.
+Persistence homology feature extraction with switchable backend.
 
-Extracts H0/H1 persistence diagrams from super-level set filtration.
-Outputs persistence pairs [(b_i, d_i), ...] and Birth/Death cell indices
-for gradient routing (Phase 2).
+Current default backend is GUDHI CubicalComplex. A prototype hook for an
+implicit DMT C++ backend is provided via `backend="dmt_cpp"`.
 """
 
 from dataclasses import dataclass
@@ -26,30 +25,14 @@ class PersistenceDiagram:
     birth_indices: np.ndarray  # (M,) flat indices of birth cells (for gradient)
     death_indices: np.ndarray  # (M,) flat indices of death cells (for gradient)
     shape: Tuple[int, ...]  # shape of the original voxel grid
+    filtration_values: np.ndarray | None = None  # optional compact backend output
 
 
-def extract_persistence(
+def _extract_persistence_gudhi(
     f: np.ndarray,
     min_persistence: float = 0.0,
     homology_dims: Tuple[int, ...] = (0, 1),
 ) -> PersistenceDiagram:
-    """
-    Extract persistence diagram from probability field using GUDHI.
-
-    Parameters
-    ----------
-    f : np.ndarray
-        Probability field in [0, 1], shape (D, H, W) or (H, W).
-    min_persistence : float
-        Minimum persistence (birth - death) to keep. Use -1 for all.
-    homology_dims : tuple
-        Homology dimensions to extract (default H0 and H1).
-
-    Returns
-    -------
-    PersistenceDiagram
-        Pairs (b, d) in f-space, dimensions, and cell indices for routing.
-    """
     if gudhi is None:
         raise ImportError(
             "GUDHI is required for persistence homology. "
@@ -71,7 +54,7 @@ def extract_persistence(
     # Compute persistence
     cc.compute_persistence(min_persistence=min_persistence)
 
-    pairs_list: List[Tuple[float, float, int, int, int]] = []
+    pairs_list: List[Tuple[float, float, int, float, float]] = []
 
     for dim in homology_dims:
         intervals = cc.persistence_intervals_in_dimension(dim)
@@ -95,6 +78,7 @@ def extract_persistence(
             birth_indices=np.zeros(0, dtype=np.int64),
             death_indices=np.zeros(0, dtype=np.int64),
             shape=shape,
+            filtration_values=filt,
         )
 
     # Get cofaces (cell indices) for gradient routing
@@ -104,7 +88,7 @@ def extract_persistence(
     death_inds: List[int] = []
     dim_counters: dict = {}
 
-    for birth_f, death_f, dim, _birth_filt, _death_filt in pairs_list:
+    for _birth_f, _death_f, dim, _birth_filt, _death_filt in pairs_list:
         if dim not in dim_counters:
             dim_counters[dim] = 0
         i = dim_counters[dim]
@@ -132,4 +116,82 @@ def extract_persistence(
         birth_indices=np.array(birth_inds, dtype=np.int64),
         death_indices=np.array(death_inds, dtype=np.int64),
         shape=shape,
+        filtration_values=filt,
     )
+
+
+def _extract_persistence_dmt_cpp(
+    f: np.ndarray,
+    min_persistence: float = 0.0,
+    homology_dims: Tuple[int, ...] = (0, 1),
+) -> PersistenceDiagram:
+    """Prototype bridge to C++ implicit DMT backend (pybind module)."""
+    try:
+        import dmt_implicit_ext  # type: ignore
+    except ImportError as e:
+        raise ImportError(
+            "dmt_implicit_ext is not available. Build cpp/dmt_implicit first, "
+            "or use backend='gudhi'."
+        ) from e
+
+    result = dmt_implicit_ext.extract_persistence_2d(
+        np.asarray(f, dtype=np.float64),
+        float(min_persistence),
+        tuple(int(x) for x in homology_dims),
+    )
+
+    pairs = np.asarray(result["pairs"], dtype=np.float64)
+    dimensions = np.asarray(result["dimensions"], dtype=np.int64)
+    birth_indices = np.asarray(result["birth_indices"], dtype=np.int64)
+    death_indices = np.asarray(result["death_indices"], dtype=np.int64)
+    filtration_values = np.asarray(result["filtration_values"], dtype=np.float64)
+
+    return PersistenceDiagram(
+        pairs=pairs,
+        dimensions=dimensions,
+        birth_indices=birth_indices,
+        death_indices=death_indices,
+        shape=tuple(int(x) for x in np.asarray(f).shape),
+        filtration_values=filtration_values,
+    )
+
+
+def extract_persistence(
+    f: np.ndarray,
+    min_persistence: float = 0.0,
+    homology_dims: Tuple[int, ...] = (0, 1),
+    backend: str = "gudhi",
+) -> PersistenceDiagram:
+    """
+    Extract persistence diagram from probability field.
+
+    Parameters
+    ----------
+    f : np.ndarray
+        Probability field in [0, 1], shape (D, H, W) or (H, W).
+    min_persistence : float
+        Minimum persistence (birth - death) to keep. Use -1 for all.
+    homology_dims : tuple
+        Homology dimensions to extract (default H0 and H1).
+    backend : str
+        Backend name: "gudhi" (default) or "dmt_cpp" (prototype).
+
+    Returns
+    -------
+    PersistenceDiagram
+    """
+    backend_norm = str(backend).strip().lower()
+    if backend_norm == "gudhi":
+        return _extract_persistence_gudhi(
+            f=f,
+            min_persistence=min_persistence,
+            homology_dims=homology_dims,
+        )
+    if backend_norm == "dmt_cpp":
+        return _extract_persistence_dmt_cpp(
+            f=f,
+            min_persistence=min_persistence,
+            homology_dims=homology_dims,
+        )
+
+    raise ValueError(f"Unsupported persistence backend: {backend}")

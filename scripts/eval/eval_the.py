@@ -31,6 +31,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--num_iter_max", type=int, default=300)
     p.add_argument("--max_samples", type=int, default=0, help="0 means all samples")
     p.add_argument("--max_hw", type=int, default=192, help="downsample long side to control runtime")
+    p.add_argument("--backend", type=str, default="gudhi", choices=["gudhi", "dmt_cpp"])
     return p.parse_args()
 
 
@@ -38,8 +39,8 @@ def main() -> None:
     args = parse_args()
     bridge = load_bridge_module()
 
-    rows = bridge.compute_the_from_uq_npz(
-        uq_npz=args.uq_npz,
+    rows = bridge.compute_the_from_prediction_npz(
+        pred_npz=args.uq_npz,
         min_persistence=args.min_persistence,
         homology_dims=(0, 1),
         epsilon=args.epsilon,
@@ -49,6 +50,7 @@ def main() -> None:
         max_samples=args.max_samples,
         max_hw=args.max_hw,
         log_every=1,
+        backend=args.backend,
     )
 
     if not rows:

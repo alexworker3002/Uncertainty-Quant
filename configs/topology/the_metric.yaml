@@ -1,5 +1,6 @@
 name: topological_hallucination_energy
 use_dmt_acceleration: true
+backend: gudhi  # options: gudhi | dmt_cpp (prototype)
 sinkhorn:
   epsilon: 0.05
   max_iter: 100
