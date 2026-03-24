@@ -6,6 +6,16 @@ Owner: Ice + Cursor agents
 ## 1) Current project status
 
 ### Completed in this round
+- Added 3D-ready cubical filtration scaffold in C++:
+  - `build_filtration_3d_upper_star(...)` with upper-star min-rule + deterministic tie-breaking.
+  - 3D cell blocks exposed: vertex / edge_x / edge_y / edge_z / face_xy / face_xz / face_yz / cube.
+- Added 3D gradient storage scaffold:
+  - `build_gradient_field_3d_scaffold(...)` with `v2e/e2v/e2f/f2e/f2c/c2f` map allocation.
+- Added pybind debug APIs for staged verification:
+  - `debug_build_filtration_3d`, `debug_build_gradient_3d`
+  - existing 2D debug APIs retained.
+- Added alignment script scaffold:
+  - `scripts/eval/test_alignment.py` (prototype compare path for dmt_cpp vs GUDHI).
 - Implemented bit-array pairing state scaffold in `cpp/dmt_implicit/src/dmt_implicit.cpp`:
   - introduced compact bit flags (`BitFlags`) for pair-consumed cells,
   - integrated into H0 proxy pairing pass.
@@ -35,7 +45,8 @@ Owner: Ice + Cursor agents
   - No linter errors found on updated Python files.
 
 ### Failed / blocked in this round
-- `dmt_cpp` backend is now non-empty for a minimal H0 proxy heuristic, but it is **not** full PH-equivalent Morse pairing yet.
+- During refactor to 3D scaffold + stricter 2D foundation, `extract_persistence_2d` temporary proxy currently returns empty pairs on random inputs; PH-equivalent persistence extraction is still pending.
+- `dmt_cpp` backend is **not** full PH-equivalent Morse pairing yet.
 - Initial apt-based toolchain install path was unstable due to archive rename/cache errors.
 - Build was unblocked by using conda env + system cmake (`/usr/bin/cmake`) and pybind11 from `py312` environment.
 - End-to-end smoke test succeeded on synthetic NPZ (`outputs/uq_maps/demo_uq_for_the.npz`).
