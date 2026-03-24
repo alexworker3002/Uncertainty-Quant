@@ -5,7 +5,7 @@ Fixes backbone, activates LoRA, iterates THE + Geometric Fidelity for 5-10 steps
 to repair structural hallucinations without degrading Dice.
 """
 
-from typing import Callable, Optional
+from typing import Callable
 
 try:
     import torch
@@ -59,11 +59,13 @@ def tttgf_step(
     model.zero_grad()
     pred = model(x)
     if pred.shape[1] > 1:
-        f = torch.softmax(pred, dim=1)[:, 1]  # foreground prob
+        f = torch.softmax(pred, dim=1)[:, 1]  # [B, H, W], foreground prob
     else:
-        f = torch.sigmoid(pred).squeeze(1)
+        f = torch.sigmoid(pred).squeeze(1)  # [B, H, W]
 
-    the_loss = the_fn(f)
+    # THE is defined on a single prediction map; batch loss is averaged.
+    per_sample_the = [the_fn(f[b]) for b in range(f.shape[0])]
+    the_loss = torch.stack(per_sample_the).mean()
     fidelity_loss = ((pred - anchor_logits) ** 2).mean()
 
     loss = the_weight * the_loss + fidelity_weight * fidelity_loss

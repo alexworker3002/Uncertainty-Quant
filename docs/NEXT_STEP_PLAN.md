@@ -49,24 +49,34 @@ Owner: Ice + Cursor agents
 
 ## 2) Immediate next objectives (priority ordered)
 
-1. **P0: Make UQ inference use real test loader instead of random tensor**
-   - Update `scripts/infer/infer_uq.py` to iterate over `DriveDataset(split="test")`.
-   - Save per-image aligned outputs and names.
+1. **P0: DMT implementation planning and boundary alignment**
+   - Keep paper/docs explicit: current code uses GUDHI path, implicit DMT backend not integrated yet.
+   - Ensure all THE/TTTGF docs avoid claiming completed C++/CUDA DMT acceleration.
 
-2. **P0: Implement formal UQ metrics**
-   - Extend `scripts/eval/eval_uq.py` with:
-     - ECE
-     - NLL
-     - Brier Score
-     - Risk-Coverage / AURC
+2. **P0: Build implicit DMT backend prototype (C++ first, CUDA optional)**
+   - New module target: `cpp/dmt_implicit/`.
+   - Implement on-the-fly local boundary evaluation (no explicit 8N simplex objects).
+   - Implement bit-array pairing state for discrete Morse matching.
+   - Output only compact critical-cell representation.
 
-3. **P1: Export reproducible report tables**
-   - Save segmentation + UQ summaries into CSV:
-     - `reports/tables/exp01_metrics.csv`
+3. **P0: Python binding integration**
+   - Add pybind bridge to expose:
+     - `critical_cells`
+     - `pair_indices`
+     - `filtration_values`
+   - Add fallback switch: `backend = {"gudhi", "dmt_cpp"}` in Phase-1 config.
 
-4. **P1: Optional training quality uplift**
-   - Add stronger augmentation and/or more stable validation protocol.
-   - Track best epoch and metric curves to diagnose low Dice.
+4. **P1: Hook backend into THE/TTTGF mainline**
+   - Replace direct cubical-complex build path when `backend=dmt_cpp`.
+   - Preserve existing THE API and sparse-routing API compatibility.
+
+5. **P1: Benchmarks and acceptance gates**
+   - Add benchmark script for memory/time:
+     - compare GUDHI vs DMT backend on 2D and 3D tensors.
+   - Acceptance criteria:
+     - same/similar PD statistics,
+     - peak memory reduction,
+     - no regression in TTTGF convergence behavior.
 
 ## 3) Suggested execution commands (server)
 
@@ -99,14 +109,13 @@ python scripts/eval/eval_uq.py --uq_npz outputs/uq_maps/mc_dropout_stats.npz --g
 
 ## 4) Handoff checklist for next agent
 
-- [x] Acquire/prepare DRIVE data in project layout.
-- [x] Generate deterministic splits.
-- [x] Run full baseline training on real data.
-- [x] Run segmentation evaluation and record metrics.
-- [x] Run scaffold UQ inference/evaluation end-to-end.
-- [ ] Replace random-tensor UQ inference with real test dataloader.
-- [ ] Implement formal UQ metrics (ECE/NLL/Brier/Risk-Coverage/AURC).
-- [ ] Export first reproducible metrics CSV table.
+- [x] Keep docs aligned with current status: THE/TTTGF implemented, implicit DMT backend not yet integrated.
+- [ ] Create `cpp/dmt_implicit/` prototype with on-the-fly neighborhood evaluation.
+- [ ] Implement bit-array Morse pairing state and critical-cell extraction.
+- [ ] Expose C++ APIs through pybind and add runtime backend switch.
+- [ ] Integrate backend option into Phase-1 persistence extraction path.
+- [ ] Add memory/runtime benchmark script and write comparison report.
+- [ ] Define acceptance threshold for PD consistency and TTTGF behavior.
 
 ## 5) Process rule (important)
 

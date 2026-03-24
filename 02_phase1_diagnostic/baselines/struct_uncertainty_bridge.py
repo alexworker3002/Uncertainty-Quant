@@ -143,7 +143,7 @@ def compute_the_for_likelihood(
     num_iter_max: int = 300,
     max_hw: int = 192,
 ) -> THEResult:
-    """Compute scalar THE from a 2D likelihood map in [0,1]."""
+    """Compute scalar THE from a single-pass probability map in [0,1]."""
     if likelihood.ndim == 3 and likelihood.shape[0] == 1:
         likelihood = likelihood[0]
     if likelihood.ndim != 2:
@@ -169,8 +169,8 @@ def compute_the_for_likelihood(
     )
 
 
-def compute_the_from_uq_npz(
-    uq_npz: str,
+def compute_the_from_prediction_npz(
+    pred_npz: str,
     min_persistence: float = 0.0,
     homology_dims: tuple[int, ...] = (0, 1),
     epsilon: float = 0.05,
@@ -181,25 +181,35 @@ def compute_the_from_uq_npz(
     max_hw: int = 192,
     log_every: int = 1,
 ) -> list[dict]:
-    """Run THE over `mean_prob` inside UQ npz and return per-sample results."""
-    data = np.load(uq_npz, allow_pickle=True)
-    if "mean_prob" not in data:
-        raise KeyError(f"mean_prob missing in {uq_npz}")
+    """Run THE over single-pass prediction probabilities in an npz file."""
+    data = np.load(pred_npz, allow_pickle=True)
 
-    mean_prob = data["mean_prob"]
-    if mean_prob.ndim != 4:
-        raise ValueError(f"Expected mean_prob shape [N,1,H,W], got {mean_prob.shape}")
+    if "pred_prob" in data:
+        pred_prob = data["pred_prob"]
+    elif "prob" in data:
+        pred_prob = data["prob"]
+    elif "mean_prob" in data:
+        pred_prob = data["mean_prob"]
+    else:
+        raise KeyError(
+            f"Expected key 'pred_prob' (or 'prob') in {pred_npz}"
+        )
 
-    names = [f"sample_{i:04d}.png" for i in range(mean_prob.shape[0])]
+    if pred_prob.ndim != 4:
+        raise ValueError(
+            f"Expected prob shape [N,1,H,W], got {pred_prob.shape}"
+        )
+
+    names = [f"sample_{i:04d}.png" for i in range(pred_prob.shape[0])]
     if "names" in data:
         names = [str(x) for x in data["names"].tolist()]
 
-    n_total = mean_prob.shape[0]
+    n_total = pred_prob.shape[0]
     n_run = n_total if max_samples <= 0 else min(max_samples, n_total)
 
     out: list[dict] = []
     for i in range(n_run):
-        prob = np.asarray(mean_prob[i, 0], dtype=np.float64)
+        prob = np.asarray(pred_prob[i, 0], dtype=np.float64)
         r = compute_the_for_likelihood(
             prob,
             min_persistence=min_persistence,
