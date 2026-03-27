@@ -60,15 +60,20 @@ py::dict extract_persistence_2d_py(
 
   const auto out = dmt_implicit::extract_persistence_2d(flat.data(), h, w, min_persistence, homology_dims);
 
-  const std::size_t m = out.dimensions.size();
+  const std::vector<double>& pairs_vec = out.pairs;
+  const std::vector<std::int64_t>& dims_vec = out.dimensions;
+  const std::vector<std::int64_t>& bidx_vec = out.birth_indices;
+  const std::vector<std::int64_t>& didx_vec = out.death_indices;
+
+  const std::size_t m = dims_vec.size();
 
   py::array_t<double> pairs({static_cast<py::ssize_t>(m), static_cast<py::ssize_t>(2)});
   {
     auto pairs_mut = pairs.mutable_unchecked<2>();
     for (std::size_t i = 0; i < m; ++i) {
       const std::size_t base = i * 2;
-      pairs_mut(i, 0) = (base < out.pairs.size()) ? out.pairs[base] : 0.0;
-      pairs_mut(i, 1) = (base + 1 < out.pairs.size()) ? out.pairs[base + 1] : 0.0;
+      pairs_mut(i, 0) = (base < pairs_vec.size()) ? pairs_vec[base] : 0.0;
+      pairs_mut(i, 1) = (base + 1 < pairs_vec.size()) ? pairs_vec[base + 1] : 0.0;
     }
   }
 
@@ -80,9 +85,9 @@ py::dict extract_persistence_2d_py(
     auto b_mut = birth_indices.mutable_unchecked<1>();
     auto d_mut = death_indices.mutable_unchecked<1>();
     for (std::size_t i = 0; i < m; ++i) {
-      dim_mut(i) = out.dimensions[i];
-      b_mut(i) = (i < out.birth_indices.size()) ? out.birth_indices[i] : -1;
-      d_mut(i) = (i < out.death_indices.size()) ? out.death_indices[i] : -1;
+      dim_mut(i) = dims_vec[i];
+      b_mut(i) = (i < bidx_vec.size()) ? bidx_vec[i] : -1;
+      d_mut(i) = (i < didx_vec.size()) ? didx_vec[i] : -1;
     }
   }
 

@@ -1,9 +1,9 @@
 #include "dmt_implicit.hpp"
 
 #include <algorithm>
-#include <cmath>
 #include <cstdint>
 #include <limits>
+#include <unordered_map>
 #include <vector>
 
 namespace dmt_implicit {
@@ -486,115 +486,230 @@ PersistenceOutput extract_persistence_2d(
   const bool use_h0 = std::find(homology_dims.begin(), homology_dims.end(), 0) != homology_dims.end();
   const bool use_h1 = std::find(homology_dims.begin(), homology_dims.end(), 1) != homology_dims.end();
 
-  const auto fil = build_filtration_2d_upper_star(prob, h, w, 1e-12);
-  const auto grad = build_gradient_field_2d_robins(fil);
-
-  out.filtration_values.resize(h * w);
-  for (std::size_t i = 0; i < h * w; ++i) {
-    out.filtration_values[i] = 1.0 - fil.vertex_raw[i];
+  // Match GUDHI input convention: top-dimensional cells use f = 1 - p in sublevel filtration.
+  std::vector<double> f_top(h * w, 0.0);
+  for (std::size_t y = 0; y < h; ++y) {
+    for (std::size_t x = 0; x < w; ++x) {
+      const double p = std::max(0.0, std::min(1.0, prob[y * w + x]));
+      f_top[y * w + x] = 1.0 - p;
+    }
   }
+
+  out.filtration_values = f_top;
 
   if (!use_h0 && !use_h1) {
     return out;
   }
 
-  // Step 1 (stabilization): deterministic non-empty H0 via union-find sweep on vertices.
-  // This gives robust component merge pairs and removes the regression to empty outputs.
-  if (use_h0) {
-    const std::size_t n_v = h * w;
-    DSU dsu(n_v);
-    std::vector<std::size_t> order(n_v);
-    for (std::size_t i = 0; i < n_v; ++i) {
-      order[i] = i;
+  const std::size_t n_v = (h + 1) * (w + 1);
+  const std::size_t n_eh = (h + 1) * w;
+  const std::size_t n_ev = h * (w + 1);
+  const std::size_t n_e = n_eh + n_ev;
+  const std::size_t n_f = h * w;
+
+  auto top_id = [w](std::size_t y, std::size_t x) {
+    return y * w + x;
+  };
+  auto vid = [w](std::size_t y, std::size_t x) {
+    return y * (w + 1) + x;
+  };
+  auto ehid = [w](std::size_t y, std::size_t x) {
+    return y * w + x;
+  };
+  auto evid = [h, w](std::size_t y, std::size_t x) {
+    return (h + 1) * w + y * (w + 1) + x;
+  };
+
+  auto min_of_incident_top = [&](const std::vector<std::size_t>& ids) {
+    double v = 1.0;
+    for (std::size_t id : ids) {
+      v = std::min(v, f_top[id]);
     }
-    std::sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
-      return fil.vertex[a] > fil.vertex[b];
-    });
+    return v;
+  };
 
-    auto union_roots = [&](std::int64_t ra, std::int64_t rb, double death_val) {
-      ra = dsu.find(ra);
-      rb = dsu.find(rb);
-      if (ra == rb) {
-        return;
+  std::vector<double> f_v(n_v, 1.0);
+  std::vector<double> f_e(n_e, 1.0);
+  std::vector<double> f_f(n_f, 1.0);
+
+  for (std::size_t y = 0; y < h; ++y) {
+    for (std::size_t x = 0; x < w; ++x) {
+      f_f[top_id(y, x)] = f_top[top_id(y, x)];
+    }
+  }
+
+  for (std::size_t y = 0; y <= h; ++y) {
+    for (std::size_t x = 0; x <= w; ++x) {
+      std::vector<std::size_t> inc;
+      if (y > 0 && x > 0) inc.push_back(top_id(y - 1, x - 1));
+      if (y > 0 && x < w) inc.push_back(top_id(y - 1, x));
+      if (y < h && x > 0) inc.push_back(top_id(y, x - 1));
+      if (y < h && x < w) inc.push_back(top_id(y, x));
+      f_v[vid(y, x)] = min_of_incident_top(inc);
+    }
+  }
+
+  for (std::size_t y = 0; y <= h; ++y) {
+    for (std::size_t x = 0; x < w; ++x) {
+      std::vector<std::size_t> inc;
+      if (y > 0) inc.push_back(top_id(y - 1, x));
+      if (y < h) inc.push_back(top_id(y, x));
+      f_e[ehid(y, x)] = min_of_incident_top(inc);
+    }
+  }
+  for (std::size_t y = 0; y < h; ++y) {
+    for (std::size_t x = 0; x <= w; ++x) {
+      std::vector<std::size_t> inc;
+      if (x > 0) inc.push_back(top_id(y, x - 1));
+      if (x < w) inc.push_back(top_id(y, x));
+      f_e[evid(y, x)] = min_of_incident_top(inc);
+    }
+  }
+
+  struct Cell {
+    int dim;
+    std::size_t id;
+    double key;
+  };
+
+  std::vector<Cell> cells;
+  cells.reserve(n_v + n_e + n_f);
+  for (std::size_t i = 0; i < n_v; ++i) cells.push_back(Cell{0, i, f_v[i]});
+  for (std::size_t i = 0; i < n_e; ++i) cells.push_back(Cell{1, i, f_e[i]});
+  for (std::size_t i = 0; i < n_f; ++i) cells.push_back(Cell{2, i, f_f[i]});
+
+  std::sort(cells.begin(), cells.end(), [](const Cell& a, const Cell& b) {
+    if (a.key != b.key) return a.key < b.key;
+    if (a.dim != b.dim) return a.dim < b.dim;
+    return a.id < b.id;
+  });
+
+  std::vector<std::size_t> v_col(n_v, 0);
+  std::vector<std::size_t> e_col(n_e, 0);
+  std::vector<std::size_t> f_col(n_f, 0);
+
+  for (std::size_t idx = 0; idx < cells.size(); ++idx) {
+    const auto& c = cells[idx];
+    if (c.dim == 0) v_col[c.id] = idx;
+    else if (c.dim == 1) e_col[c.id] = idx;
+    else f_col[c.id] = idx;
+  }
+
+  auto edge_vertices = [&](std::size_t e, std::size_t& v0, std::size_t& v1) {
+    if (e < n_eh) {
+      const std::size_t y = e / w;
+      const std::size_t x = e % w;
+      v0 = vid(y, x);
+      v1 = vid(y, x + 1);
+      return;
+    }
+    const std::size_t ev = e - n_eh;
+    const std::size_t y = ev / (w + 1);
+    const std::size_t x = ev % (w + 1);
+    v0 = vid(y, x);
+    v1 = vid(y + 1, x);
+  };
+
+  auto face_edges = [&](std::size_t f, std::size_t out_edges[4]) {
+    const std::size_t y = f / w;
+    const std::size_t x = f % w;
+    out_edges[0] = ehid(y, x);       // top horizontal
+    out_edges[1] = ehid(y + 1, x);   // bottom horizontal
+    out_edges[2] = evid(y, x);       // left vertical
+    out_edges[3] = evid(y, x + 1);   // right vertical
+  };
+
+  std::vector<std::vector<int>> columns(cells.size());
+  for (std::size_t idx = 0; idx < cells.size(); ++idx) {
+    const auto& c = cells[idx];
+    if (c.dim == 1) {
+      std::size_t v0, v1;
+      edge_vertices(c.id, v0, v1);
+      std::vector<int> b = {static_cast<int>(v_col[v0]), static_cast<int>(v_col[v1])};
+      std::sort(b.begin(), b.end());
+      columns[idx] = std::move(b);
+    } else if (c.dim == 2) {
+      std::size_t edges[4];
+      face_edges(c.id, edges);
+      std::vector<int> b = {
+          static_cast<int>(e_col[edges[0]]),
+          static_cast<int>(e_col[edges[1]]),
+          static_cast<int>(e_col[edges[2]]),
+          static_cast<int>(e_col[edges[3]])};
+      std::sort(b.begin(), b.end());
+      columns[idx] = std::move(b);
+    }
+  }
+
+  auto xor_sorted = [](std::vector<int>& a, const std::vector<int>& b) {
+    std::vector<int> out;
+    out.reserve(a.size() + b.size());
+    std::size_t i = 0;
+    std::size_t j = 0;
+    while (i < a.size() || j < b.size()) {
+      if (j >= b.size() || (i < a.size() && a[i] < b[j])) {
+        out.push_back(a[i++]);
+      } else if (i >= a.size() || b[j] < a[i]) {
+        out.push_back(b[j++]);
+      } else {
+        ++i;
+        ++j;
       }
+    }
+    a.swap(out);
+  };
 
-      const double ba = dsu.birth_val[static_cast<std::size_t>(ra)];
-      const double bb = dsu.birth_val[static_cast<std::size_t>(rb)];
+  std::unordered_map<int, int> low_to_col;
+  std::vector<bool> is_birth_paired(cells.size(), false);
 
-      std::int64_t keep = ra;
-      std::int64_t kill = rb;
-      if (bb > ba || (bb == ba && rb < ra)) {
-        keep = rb;
-        kill = ra;
-      }
+  for (std::size_t j = 0; j < columns.size(); ++j) {
+    auto& col = columns[j];
+    while (!col.empty()) {
+      const int low = col.back();
+      auto it = low_to_col.find(low);
+      if (it == low_to_col.end()) break;
+      xor_sorted(col, columns[static_cast<std::size_t>(it->second)]);
+    }
 
-      const double birth = dsu.birth_val[static_cast<std::size_t>(kill)];
-      const double persistence = birth - death_val;
-      if (persistence >= min_persistence) {
+    if (col.empty()) continue;
+
+    const int low = col.back();
+    low_to_col[low] = static_cast<int>(j);
+
+    const int birth_dim = cells[static_cast<std::size_t>(low)].dim;
+    const int death_dim = cells[j].dim;
+    if (!((birth_dim == 0 && death_dim == 1) || (birth_dim == 1 && death_dim == 2))) continue;
+
+    is_birth_paired[static_cast<std::size_t>(low)] = true;
+
+    if ((birth_dim == 0 && use_h0) || (birth_dim == 1 && use_h1)) {
+      const double birth_f = cells[static_cast<std::size_t>(low)].key;
+      const double death_f = cells[j].key;
+      const double birth = 1.0 - birth_f;
+      const double death = 1.0 - death_f;
+      if ((birth - death) > min_persistence) {
         out.pairs.push_back(birth);
-        out.pairs.push_back(death_val);
-        out.dimensions.push_back(0);
-        out.birth_indices.push_back(dsu.birth_vertex[static_cast<std::size_t>(kill)]);
-        out.death_indices.push_back(-1);
-      }
-
-      dsu.parent[static_cast<std::size_t>(kill)] = keep;
-      if (dsu.rank[static_cast<std::size_t>(keep)] == dsu.rank[static_cast<std::size_t>(kill)]) {
-        dsu.rank[static_cast<std::size_t>(keep)]++;
-      }
-    };
-
-    for (std::size_t v : order) {
-      dsu.activate(static_cast<std::int64_t>(v), fil.vertex[v], static_cast<std::int64_t>(v));
-      const std::size_t y = v / w;
-      const std::size_t x = v % w;
-
-      // Neighbor unions are triggered at current vertex filtration (upper-star sweep).
-      if (x > 0) {
-        const std::size_t u = vid2(y, x - 1, w);
-        if (dsu.active(static_cast<std::int64_t>(u))) {
-          union_roots(static_cast<std::int64_t>(v), static_cast<std::int64_t>(u), fil.vertex[v]);
-        }
-      }
-      if (x + 1 < w) {
-        const std::size_t u = vid2(y, x + 1, w);
-        if (dsu.active(static_cast<std::int64_t>(u))) {
-          union_roots(static_cast<std::int64_t>(v), static_cast<std::int64_t>(u), fil.vertex[v]);
-        }
-      }
-      if (y > 0) {
-        const std::size_t u = vid2(y - 1, x, w);
-        if (dsu.active(static_cast<std::int64_t>(u))) {
-          union_roots(static_cast<std::int64_t>(v), static_cast<std::int64_t>(u), fil.vertex[v]);
-        }
-      }
-      if (y + 1 < h) {
-        const std::size_t u = vid2(y + 1, x, w);
-        if (dsu.active(static_cast<std::int64_t>(u))) {
-          union_roots(static_cast<std::int64_t>(v), static_cast<std::int64_t>(u), fil.vertex[v]);
-        }
+        out.pairs.push_back(death);
+        out.dimensions.push_back(birth_dim);
+        out.birth_indices.push_back(static_cast<std::int64_t>(cells[static_cast<std::size_t>(low)].id));
+        out.death_indices.push_back(static_cast<std::int64_t>(cells[j].id));
       }
     }
   }
 
-  // Step 2 (placeholder): derive H1 critical-face candidates from unmatched gradient map.
-  // Full Morse boundary/V-path reduction is next milestone; currently we expose deterministic
-  // candidate pairs to keep dimension-1 path wired for upcoming strict implementation.
-  if (use_h1) {
-    const std::size_t n_f = grad.f2e.size();
-    for (std::size_t f = 0; f < n_f; ++f) {
-      if (grad.f2e[f] >= 0) {
-        continue;
-      }
-      const double birth = (f < fil.face.size()) ? fil.face[f] : 0.0;
-      const double death = birth;
-      if ((birth - death) < min_persistence) {
-        continue;
-      }
+  for (std::size_t j = 0; j < cells.size(); ++j) {
+    const int dim = cells[j].dim;
+    // Only keep essential H0 classes for bounded 2D domains.
+    if (!(dim == 0 && use_h0)) continue;
+    if (is_birth_paired[j]) continue;
+
+    const double birth = 1.0 - cells[j].key;
+    const double death = 0.0;
+    if ((birth - death) > min_persistence) {
       out.pairs.push_back(birth);
       out.pairs.push_back(death);
-      out.dimensions.push_back(1);
-      out.birth_indices.push_back(static_cast<std::int64_t>(f));
+      out.dimensions.push_back(dim);
+      out.birth_indices.push_back(static_cast<std::int64_t>(cells[j].id));
       out.death_indices.push_back(-1);
     }
   }

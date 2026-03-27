@@ -43,6 +43,13 @@ def _compute_dmt_pairs(prob: np.ndarray) -> dict[int, np.ndarray]:
     return out
 
 
+def _sort_pairs(pd: np.ndarray) -> np.ndarray:
+    if pd.size == 0:
+        return pd.reshape(0, 2)
+    order = np.lexsort((pd[:, 1], pd[:, 0]))
+    return pd[order]
+
+
 def _diag_only_distance(pd: np.ndarray) -> float:
     if pd.shape[0] == 0:
         return 0.0
@@ -65,43 +72,113 @@ def _safe_bottleneck(a: np.ndarray, b: np.ndarray) -> float:
         return float("inf")
 
 
-def run_alignment(num_cases: int, seed: int, h: int, w: int, strict: bool, tol: float) -> None:
+def _build_micro_cases() -> list[tuple[str, np.ndarray]]:
+    # Case A: one strong peak at center
+    c_peak = np.array(
+        [
+            [0.1, 0.2, 0.1],
+            [0.2, 0.9, 0.2],
+            [0.1, 0.2, 0.1],
+        ],
+        dtype=np.float64,
+    )
+
+    # Case B: ring-like pattern (high border, low center)
+    c_ring = np.array(
+        [
+            [0.9, 0.9, 0.9],
+            [0.9, 0.1, 0.9],
+            [0.9, 0.9, 0.9],
+        ],
+        dtype=np.float64,
+    )
+
+    # Case C: tie-heavy plateaus to stress tie-breaking
+    c_tie = np.array(
+        [
+            [0.7, 0.7, 0.7],
+            [0.7, 0.7, 0.7],
+            [0.7, 0.7, 0.7],
+        ],
+        dtype=np.float64,
+    )
+
+    return [
+        ("micro_peak", c_peak),
+        ("micro_ring", c_ring),
+        ("micro_tie", c_tie),
+    ]
+
+
+def _print_pair_dump(label: str, dim: int, g_pd: np.ndarray, d_pd: np.ndarray) -> None:
+    print(f"  [{label}] dim={dim}")
+    print(f"    gudhi pairs ({g_pd.shape[0]}): {_sort_pairs(g_pd)}")
+    print(f"    dmt   pairs ({d_pd.shape[0]}): {_sort_pairs(d_pd)}")
+
+
+def _check_case(prob: np.ndarray, case_name: str, strict: bool, tol: float) -> tuple[float, float]:
+    g = _compute_gudhi_pairs(prob)
+    d = _compute_dmt_pairs(prob)
+
+    n0_g, n0_d = g[0].shape[0], d[0].shape[0]
+    n1_g, n1_d = g[1].shape[0], d[1].shape[0]
+
+    b0 = _safe_bottleneck(g[0], d[0])
+    b1 = _safe_bottleneck(g[1], d[1])
+
+    print(
+        f"[{case_name}] H0 count gudhi={n0_g}, dmt={n0_d}, bottleneck={b0:.6e} | "
+        f"H1 count gudhi={n1_g}, dmt={n1_d}, bottleneck={b1:.6e}"
+    )
+
+    _print_pair_dump(case_name, 0, g[0], d[0])
+    _print_pair_dump(case_name, 1, g[1], d[1])
+
+    if strict:
+        if n0_g != n0_d or n1_g != n1_d:
+            raise AssertionError(
+                f"Pair count mismatch at case {case_name}: "
+                f"H0 gudhi={n0_g} dmt={n0_d}, "
+                f"H1 gudhi={n1_g} dmt={n1_d}"
+            )
+        if b0 >= tol or b1 >= tol:
+            raise AssertionError(
+                f"Bottleneck threshold failed at case {case_name}: "
+                f"H0={b0:.6e}, H1={b1:.6e}, tol={tol:.6e}"
+            )
+
+    return b0, b1
+
+
+def run_alignment(
+    num_cases: int,
+    seed: int,
+    h: int,
+    w: int,
+    strict: bool,
+    tol: float,
+    run_micro: bool,
+) -> None:
     rng = np.random.default_rng(seed)
     max_bdim0 = 0.0
     max_bdim1 = 0.0
 
+    if run_micro:
+        print("[micro-tests] Running handcrafted 3x3 cases for deterministic alignment checks")
+        for name, prob in _build_micro_cases():
+            b0, b1 = _check_case(prob, name, strict, tol)
+            max_bdim0 = max(max_bdim0, b0)
+            max_bdim1 = max(max_bdim1, b1)
+
+    print("[random-tests] Running stochastic cases")
     for i in range(num_cases):
         base = rng.random((h, w), dtype=np.float64)
         noise = 0.05 * rng.standard_normal((h, w))
         prob = np.clip(base + noise, 0.0, 1.0)
 
-        g = _compute_gudhi_pairs(prob)
-        d = _compute_dmt_pairs(prob)
-
-        n0_g, n0_d = g[0].shape[0], d[0].shape[0]
-        n1_g, n1_d = g[1].shape[0], d[1].shape[0]
-
-        b0 = _safe_bottleneck(g[0], d[0])
-        b1 = _safe_bottleneck(g[1], d[1])
+        b0, b1 = _check_case(prob, f"rand_{i:03d}", strict, tol)
         max_bdim0 = max(max_bdim0, b0)
         max_bdim1 = max(max_bdim1, b1)
-
-        print(
-            f"[case {i:03d}] H0 count gudhi={n0_g}, dmt={n0_d}, bottleneck={b0:.6e} | "
-            f"H1 count gudhi={n1_g}, dmt={n1_d}, bottleneck={b1:.6e}"
-        )
-
-        if strict:
-            if n0_g != n0_d or n1_g != n1_d:
-                raise AssertionError(
-                    f"Pair count mismatch at case {i}: "
-                    f"H0 gudhi={n0_g} dmt={n0_d}, "
-                    f"H1 gudhi={n1_g} dmt={n1_d}"
-                )
-            if b0 >= tol or b1 >= tol:
-                raise AssertionError(
-                    f"Bottleneck threshold failed at case {i}: H0={b0:.6e}, H1={b1:.6e}, tol={tol:.6e}"
-                )
 
     print("\n[summary]")
     print(f"max bottleneck H0: {max_bdim0:.6e}")
@@ -122,9 +199,22 @@ def main() -> None:
     p.add_argument("--strict", action="store_true")
     p.add_argument("--tol", type=float, default=1e-5)
     p.add_argument("--write_note", type=str, default="")
+    p.add_argument(
+        "--run_micro",
+        action="store_true",
+        help="Run deterministic 3x3 micro-tests for quick GUDHI vs DMT alignment checks",
+    )
     args = p.parse_args()
 
-    run_alignment(args.num_cases, args.seed, args.h, args.w, args.strict, args.tol)
+    run_alignment(
+        args.num_cases,
+        args.seed,
+        args.h,
+        args.w,
+        args.strict,
+        args.tol,
+        args.run_micro,
+    )
 
     if args.write_note:
         out = Path(args.write_note)
